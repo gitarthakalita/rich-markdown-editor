@@ -8,9 +8,9 @@ import Node from "./Node";
 export default class Notice extends Node {
   get styleOptions() {
     return Object.entries({
-      info: "Info",
-      warning: "Warning",
-      tip: "Tip",
+      info: this.options.dictionary.info,
+      warning: this.options.dictionary.warning,
+      tip: this.options.dictionary.tip,
     });
   }
 
@@ -28,8 +28,21 @@ export default class Notice extends Node {
       content: "block+",
       group: "block",
       defining: true,
-      draggable: false,
-      parseDOM: [{ tag: "div.notice-block", preserveWhitespace: "full" }],
+      draggable: true,
+      parseDOM: [
+        {
+          tag: "div.notice-block",
+          preserveWhitespace: "full",
+          contentElement: "div:last-child",
+          getAttrs: (dom: HTMLDivElement) => ({
+            style: dom.className.includes("tip")
+              ? "tip"
+              : dom.className.includes("warning")
+              ? "warning"
+              : undefined,
+          }),
+        },
+      ],
       toDOM: node => {
         const select = document.createElement("select");
         select.addEventListener("change", this.handleStyleChange);

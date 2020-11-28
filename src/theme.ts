@@ -68,6 +68,7 @@ export const light = {
   divider: colors.greyMid,
 
   toolbarBackground: colors.lightBlack,
+  toolbarHoverBackground: colors.black,
   toolbarInput: colors.white10,
   toolbarItem: colors.white,
 
@@ -80,6 +81,9 @@ export const light = {
   codeBorder: colors.grey,
   horizontalRule: colors.greyMid,
   imageErrorBackground: colors.greyLight,
+
+  scrollbarBackground: colors.greyLight,
+  scrollbarThumb: colors.greyMid,
 };
 
 export const dark = {
@@ -92,6 +96,7 @@ export const dark = {
   placeholder: "#52657A",
 
   toolbarBackground: colors.white,
+  toolbarHoverBackground: colors.greyMid,
   toolbarInput: colors.black10,
   toolbarItem: colors.lightBlack,
 
@@ -105,6 +110,9 @@ export const dark = {
   codeString: "#3d8fd1",
   horizontalRule: colors.lightBlack,
   imageErrorBackground: "rgba(0, 0, 0, 0.5)",
+
+  scrollbarBackground: colors.black,
+  scrollbarThumb: colors.lightBlack,
 };
 
 export default light;

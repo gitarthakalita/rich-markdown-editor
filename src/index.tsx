@@ -1,5 +1,6 @@
 /* global window File Promise */
 import * as React from "react";
+import memoize from "lodash/memoize";
 import { EditorState, Selection, Plugin } from "prosemirror-state";
 import { dropCursor } from "prosemirror-dropcursor";
 import { gapCursor } from "prosemirror-gapcursor";
@@ -12,9 +13,10 @@ import { baseKeymap } from "prosemirror-commands";
 import { selectColumn, selectRow, selectTable } from "prosemirror-utils";
 import styled, { ThemeProvider } from "styled-components";
 import { light as lightTheme, dark as darkTheme } from "./theme";
+import baseDictionary from "./dictionary";
 import Flex from "./components/Flex";
 import { SearchResult } from "./components/LinkEditor";
-import { EmbedDescriptor } from "./types";
+import { EmbedDescriptor, ToastType } from "./types";
 import SelectionToolbar from "./components/SelectionToolbar";
 import BlockMenu from "./components/BlockMenu";
 import LinkToolbar from "./components/LinkToolbar";
@@ -35,6 +37,7 @@ import CodeFence from "./nodes/CodeFence";
 import CheckboxList from "./nodes/CheckboxList";
 import CheckboxItem from "./nodes/CheckboxItem";
 import Embed from "./nodes/Embed";
+import HardBreak from "./nodes/HardBreak";
 import Heading from "./nodes/Heading";
 import HorizontalRule from "./nodes/HorizontalRule";
 import Image from "./nodes/Image";
@@ -54,6 +57,8 @@ import Highlight from "./marks/Highlight";
 import Italic from "./marks/Italic";
 import Link from "./marks/Link";
 import Strikethrough from "./marks/Strikethrough";
+import TemplatePlaceholder from "./marks/Placeholder";
+import Underline from "./marks/Underline";
 
 // plugins
 import BlockMenuTrigger from "./plugins/BlockMenuTrigger";
@@ -79,8 +84,10 @@ export type Props = {
   autoFocus?: boolean;
   readOnly?: boolean;
   readOnlyWriteCheckboxes?: boolean;
+  dictionary?: Partial<typeof baseDictionary>;
   dark?: boolean;
   theme?: typeof theme;
+  template?: boolean;
   headingsOffset?: number;
   scrollTo?: string;
   handleDOMEvents?: {
@@ -94,13 +101,13 @@ export type Props = {
   onImageUploadStop?: () => void;
   onCreateLink?: (title: string) => Promise<string>;
   onSearchLink?: (term: string) => Promise<SearchResult[]>;
-  onClickLink: (href: string) => void;
+  onClickLink: (href: string, event: MouseEvent) => void;
   onHoverLink?: (event: MouseEvent) => boolean;
-  onClickHashtag?: (tag: string) => void;
+  onClickHashtag?: (tag: string, event: MouseEvent) => void;
   onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
   embeds: EmbedDescriptor[];
-  onShowToast?: (message: string) => void;
-  tooltip: typeof React.Component;
+  onShowToast?: (message: string, code: ToastType) => void;
+  tooltip: typeof React.Component | React.FC<any>;
   className?: string;
   style?: Record<string, string>;
 };
@@ -211,33 +218,42 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
   }
 
   createExtensions() {
+    const dictionary = this.dictionary(this.props.dictionary);
+
     // adding nodes here? Update schema.ts for serialization on the server
     return new ExtensionManager(
       [
         new Doc(),
         new Text(),
+        new HardBreak(),
         new Paragraph(),
         new Blockquote(),
-        new BulletList(),
         new CodeBlock({
+          dictionary,
           initialReadOnly: this.props.readOnly,
           onShowToast: this.props.onShowToast,
         }),
         new CodeFence({
+          dictionary,
           initialReadOnly: this.props.readOnly,
           onShowToast: this.props.onShowToast,
         }),
         new CheckboxList(),
         new CheckboxItem(),
+        new BulletList(),
         new Embed(),
         new ListItem(),
-        new Notice(),
+        new Notice({
+          dictionary,
+        }),
         new Heading({
+          dictionary,
           onShowToast: this.props.onShowToast,
           offset: this.props.headingsOffset,
         }),
         new HorizontalRule(),
         new Image({
+          dictionary,
           uploadImage: this.props.uploadImage,
           onImageUploadStart: this.props.onImageUploadStart,
           onImageUploadStop: this.props.onImageUploadStop,
@@ -256,6 +272,8 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
         new Code(),
         new Highlight(),
         new Italic(),
+        new TemplatePlaceholder(),
+        new Underline(),
         new Link({
           onKeyboardShortcut: this.handleOpenLinkMenu,
           onClickLink: this.props.onClickLink,
@@ -274,6 +292,7 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
           onCancel: this.props.onCancel,
         }),
         new BlockMenuTrigger({
+          dictionary,
           onOpen: this.handleOpenBlockMenu,
           onClose: this.handleCloseBlockMenu,
         }),
@@ -365,7 +384,7 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
       plugins: [
         ...this.plugins,
         ...this.keymaps,
-        dropCursor(),
+        dropCursor({ color: this.theme().cursor }),
         gapCursor(),
         inputRules({
           rules: this.inputRules,
@@ -541,9 +560,18 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
     return headings;
   };
 
+  theme = () => {
+    return this.props.theme || (this.props.dark ? darkTheme : lightTheme);
+  };
+
+  dictionary = memoize(
+    (providedDictionary?: Partial<typeof baseDictionary>) => {
+      return { ...baseDictionary, ...providedDictionary };
+    }
+  );
+
   render = () => {
     const {
-      dark,
       readOnly,
       readOnlyWriteCheckboxes,
       style,
@@ -551,7 +579,7 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
       className,
       onKeyDown,
     } = this.props;
-    const theme = this.props.theme || (dark ? darkTheme : lightTheme);
+    const dictionary = this.dictionary(this.props.dictionary);
 
     return (
       <Flex
@@ -562,7 +590,7 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
         justify="center"
         column
       >
-        <ThemeProvider theme={theme}>
+        <ThemeProvider theme={this.theme()}>
           <React.Fragment>
             <StyledEditor
               readOnly={readOnly}
@@ -573,7 +601,9 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
               <React.Fragment>
                 <SelectionToolbar
                   view={this.view}
+                  dictionary={dictionary}
                   commands={this.commands}
+                  isTemplate={this.props.template === true}
                   onSearchLink={this.props.onSearchLink}
                   onClickLink={this.props.onClickLink}
                   onCreateLink={this.props.onCreateLink}
@@ -581,6 +611,7 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
                 />
                 <LinkToolbar
                   view={this.view}
+                  dictionary={dictionary}
                   isActive={this.state.linkMenuOpen}
                   onCreateLink={this.props.onCreateLink}
                   onSearchLink={this.props.onSearchLink}
@@ -592,6 +623,7 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
                 <BlockMenu
                   view={this.view}
                   commands={this.commands}
+                  dictionary={dictionary}
                   isActive={this.state.blockMenuOpen}
                   search={this.state.blockMenuSearch}
                   onClose={this.handleCloseBlockMenu}
@@ -674,7 +706,8 @@ const StyledEditor = styled("div")<{
   }
 
   .ProseMirror-selectednode {
-    outline: 2px solid ${props => props.theme.selected};
+    outline: 2px solid
+      ${props => (props.readOnly ? "transparent" : props.theme.selected)};
   }
 
   /* Make sure li selections wrap around markers */
@@ -712,6 +745,20 @@ const StyledEditor = styled("div")<{
       font-size: 13px;
       left: -24px;
     }
+
+    &:hover {
+      .heading-anchor {
+        opacity: 1;
+      }
+    }
+  }
+
+  .heading-name {
+    color: ${props => props.theme.text};
+
+    &:hover {
+      text-decoration: none;
+    }
   }
 
   a:first-child {
@@ -746,18 +793,6 @@ const StyledEditor = styled("div")<{
   }
   h6:not(.placeholder):before {
     content: "H6";
-  }
-
-  .heading-name {
-    color: ${props => props.theme.text};
-
-    &:hover {
-      text-decoration: none;
-
-      .heading-anchor {
-        opacity: 1;
-      }
-    }
   }
 
   .with-emoji {
@@ -811,8 +846,11 @@ const StyledEditor = styled("div")<{
     padding: 8px 16px;
     margin: 8px 0;
 
-    a:not(.heading-name) {
+    a {
       color: ${props => props.theme.noticeInfoText};
+    }
+
+    a:not(.heading-name) {
       text-decoration: underline;
     }
   }
@@ -854,6 +892,19 @@ const StyledEditor = styled("div")<{
   b,
   strong {
     font-weight: 600;
+  }
+
+  .template-placeholder {
+    color: ${props => props.theme.placeholder};
+    border-bottom: 1px dotted ${props => props.theme.placeholder};
+    border-radius: 2px;
+    cursor: text;
+
+    &:hover {
+      border-bottom: 1px dotted
+        ${props =>
+          props.readOnly ? props.theme.placeholder : props.theme.textSecondary};
+    }
   }
 
   p {
@@ -906,7 +957,8 @@ const StyledEditor = styled("div")<{
   ul.checkbox_list li input {
     pointer-events: ${props =>
       props.readOnly && !props.readOnlyWriteCheckboxes ? "none" : "initial"};
-    opacity: ${props => (props.readOnly ? 0.75 : 1)};
+    opacity: ${props =>
+      props.readOnly && !props.readOnlyWriteCheckboxes ? 0.75 : 1};
     margin: 0 0.5em 0 0;
     width: 14px;
     height: 14px;
@@ -914,6 +966,7 @@ const StyledEditor = styled("div")<{
 
   li p:first-child {
     margin: 0;
+    word-break: break-all;
   }
 
   hr {
@@ -942,6 +995,9 @@ const StyledEditor = styled("div")<{
 
     select,
     button {
+      background: ${props => props.theme.blockToolbarBackground};
+      color: ${props => props.theme.blockToolbarItem};
+      border-width: 1px;
       font-size: 13px;
       display: none;
       position: absolute;
@@ -950,6 +1006,10 @@ const StyledEditor = styled("div")<{
       z-index: 1;
       top: 4px;
       right: 4px;
+    }
+
+    button {
+      padding: 2px 4px;
     }
 
     &:hover {
@@ -1130,74 +1190,91 @@ const StyledEditor = styled("div")<{
     .selectedCell {
       background: ${props =>
         props.readOnly ? "inherit" : props.theme.tableSelectedBackground};
+
+      /* fixes Firefox background color painting over border:
+       * https://bugzilla.mozilla.org/show_bug.cgi?id=688556 */
+      background-clip: padding-box;
     }
 
     .grip-column {
-      cursor: pointer;
-      position: absolute;
-      top: -16px;
-      left: 0;
-      width: 100%;
-      height: 12px;
-      background: ${props => props.theme.tableDivider};
-      border-bottom: 3px solid ${props => props.theme.background};
-      display: ${props => (props.readOnly ? "none" : "block")};
+      /* usage of ::after for all of the table grips works around a bug in
+       * prosemirror-tables that causes Safari to hang when selecting a cell
+       * in an empty table:
+       * https://github.com/ProseMirror/prosemirror/issues/947 */
+      &::after {
+        content: "";
+        cursor: pointer;
+        position: absolute;
+        top: -16px;
+        left: 0;
+        width: 100%;
+        height: 12px;
+        background: ${props => props.theme.tableDivider};
+        border-bottom: 3px solid ${props => props.theme.background};
+        display: ${props => (props.readOnly ? "none" : "block")};
+      }
 
-      &:hover {
+      &:hover::after {
         background: ${props => props.theme.text};
       }
-      &.first {
+      &.first::after {
         border-top-left-radius: 3px;
       }
-      &.last {
+      &.last::after {
         border-top-right-radius: 3px;
       }
-      &.selected {
+      &.selected::after {
         background: ${props => props.theme.tableSelected};
       }
     }
 
     .grip-row {
-      cursor: pointer;
-      position: absolute;
-      left: -16px;
-      top: 0;
-      height: 100%;
-      width: 12px;
-      background: ${props => props.theme.tableDivider};
-      border-right: 3px solid ${props => props.theme.background};
-      display: ${props => (props.readOnly ? "none" : "block")};
+      &::after {
+        content: "";
+        cursor: pointer;
+        position: absolute;
+        left: -16px;
+        top: 0;
+        height: 100%;
+        width: 12px;
+        background: ${props => props.theme.tableDivider};
+        border-right: 3px solid ${props => props.theme.background};
+        display: ${props => (props.readOnly ? "none" : "block")};
+      }
 
-      &:hover {
+      &:hover::after {
         background: ${props => props.theme.text};
       }
-      &.first {
+      &.first::after {
         border-top-left-radius: 3px;
       }
-      &.last {
+      &.last::after {
         border-bottom-left-radius: 3px;
       }
-      &.selected {
+      &.selected::after {
         background: ${props => props.theme.tableSelected};
       }
     }
 
     .grip-table {
-      cursor: pointer;
-      background: ${props => props.theme.tableDivider};
-      width: 13px;
-      height: 13px;
-      border-radius: 13px;
-      border: 2px solid ${props => props.theme.background};
-      position: absolute;
-      top: -18px;
-      left: -18px;
-      display: ${props => (props.readOnly ? "none" : "block")};
+      &::after {
+        content: "";
+        cursor: pointer;
+        background: ${props => props.theme.tableDivider};
+        width: 13px;
+        height: 13px;
+        border-radius: 13px;
+        border: 2px solid ${props => props.theme.background};
+        position: absolute;
+        top: -18px;
+        left: -18px;
+        display: ${props => (props.readOnly ? "none" : "block")};
+      }
 
-      &:hover {
+      &:hover::after {
         background: ${props => props.theme.text};
       }
-      &.selected {
+      &.selected::after {
         background: ${props => props.theme.tableSelected};
       }
     }
@@ -1206,11 +1283,38 @@ const StyledEditor = styled("div")<{
   .scrollable-wrapper {
     position: relative;
     margin: 0.5em 0px;
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+
+    &:hover {
+      scrollbar-color: ${props => props.theme.scrollbarThumb}
+        ${props => props.theme.scrollbarBackground};
+    }
+
+    & ::-webkit-scrollbar {
+      height: 14px;
+      background-color: transparent;
+    }
+
+    &:hover ::-webkit-scrollbar {
+      background-color: ${props => props.theme.scrollbarBackground};
+    }
+
+    & ::-webkit-scrollbar-thumb {
+      background-color: transparent;
+      border: 3px solid transparent;
+      border-radius: 7px;
+    }
+
+    &:hover ::-webkit-scrollbar-thumb {
+      background-color: ${props => props.theme.scrollbarThumb};
+      border-color: ${props => props.theme.scrollbarBackground};
+    }
   }
 
   .scrollable {
     overflow-y: hidden;
-    overflow-x: scroll;
+    overflow-x: auto;
     padding-left: 1em;
     margin-left: -1em;
     border-left: 1px solid transparent;

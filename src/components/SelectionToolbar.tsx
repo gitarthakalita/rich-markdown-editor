@@ -1,6 +1,7 @@
 import assert from "assert";
 import * as React from "react";
 import { Portal } from "react-portal";
+import { some } from "lodash";
 import { EditorView } from "prosemirror-view";
 import getTableColMenuItems from "../menus/tableCol";
 import getTableRowMenuItems from "../menus/tableRow";
@@ -16,12 +17,15 @@ import getColumnIndex from "../queries/getColumnIndex";
 import getRowIndex from "../queries/getRowIndex";
 import createAndInsertLink from "../commands/createAndInsertLink";
 import { MenuItem } from "../types";
+import baseDictionary from "../dictionary";
 
 type Props = {
-  tooltip: typeof React.Component;
+  dictionary: typeof baseDictionary;
+  tooltip: typeof React.Component | React.FC<any>;
+  isTemplate: boolean;
   commands: Record<string, any>;
   onSearchLink?: (term: string) => Promise<SearchResult[]>;
-  onClickLink: (url: string) => void;
+  onClickLink: (href: string, event: MouseEvent) => void;
   onCreateLink?: (title: string) => Promise<string>;
   onShowToast?: (msg: string, code: string) => void;
   view: EditorView;
@@ -31,12 +35,20 @@ function isActive(props) {
   const { view } = props;
   const { selection } = view.state;
 
-  return selection && !selection.empty && !selection.node;
+  if (!selection) return false;
+  if (selection.empty) return false;
+  if (selection.node) return false;
+
+  const slice = selection.content();
+  const fragment = slice.content;
+  const nodes = fragment.content;
+
+  return some(nodes, n => n.content.size);
 }
 
 export default class SelectionToolbar extends React.Component<Props> {
   handleOnCreateLink = async (title: string) => {
-    const { onCreateLink, view, onShowToast } = this.props;
+    const { dictionary, onCreateLink, view, onShowToast } = this.props;
 
     if (!onCreateLink) {
       return;
@@ -59,6 +71,7 @@ export default class SelectionToolbar extends React.Component<Props> {
     createAndInsertLink(view, title, href, {
       onCreateLink,
       onShowToast,
+      dictionary,
     });
   };
 
@@ -84,7 +97,7 @@ export default class SelectionToolbar extends React.Component<Props> {
   };
 
   render() {
-    const { onCreateLink, ...rest } = this.props;
+    const { dictionary, onCreateLink, isTemplate, ...rest } = this.props;
     const { view } = rest;
     const { state } = view;
     const { selection }: { selection: any } = state;
@@ -103,13 +116,13 @@ export default class SelectionToolbar extends React.Component<Props> {
 
     let items: MenuItem[] = [];
     if (isTableSelection) {
-      items = getTableMenuItems();
+      items = getTableMenuItems(dictionary);
     } else if (colIndex !== undefined) {
-      items = getTableColMenuItems(state, colIndex);
+      items = getTableColMenuItems(state, colIndex, dictionary);
     } else if (rowIndex !== undefined) {
-      items = getTableRowMenuItems(state, rowIndex);
+      items = getTableRowMenuItems(state, rowIndex, dictionary);
     } else {
-      items = getFormattingMenuItems(state);
+      items = getFormattingMenuItems(state, isTemplate, dictionary);
     }
 
     if (!items.length) {
@@ -121,6 +134,7 @@ export default class SelectionToolbar extends React.Component<Props> {
         <FloatingToolbar view={view} active={isActive(this.props)}>
           {link && range ? (
             <LinkEditor
+              dictionary={dictionary}
               mark={range.mark}
               from={range.from}
               to={range.to}
